@@ -3,6 +3,7 @@ import type { OutputFormat } from '../types.js';
 import { rawEncoder } from './raw-encoder.js';
 import { createSharpEncoder } from './sharp-encoder.js';
 import { createCanvasEncoder } from './canvas-encoder.js';
+import { createFallbackEncoder } from './fallback-encoder.js';
 import { UnsupportedFormatError } from '../errors.js';
 
 let resolvedEncoder: Encoder | null = null;
@@ -24,12 +25,9 @@ async function resolveEncoder(): Promise<Encoder> {
     return resolvedEncoder;
   }
 
-  // TODO: Add WASM encoder fallback (Phase 4)
-
-  throw new UnsupportedFormatError(
-    'any encoded format',
-    'none — no encoder available. Install Sharp (`npm install sharp`) for Node.js encoding support',
-  );
+  // Fallback: upng-js for PNG-only encoding
+  resolvedEncoder = createFallbackEncoder();
+  return resolvedEncoder;
 }
 
 export async function encode(
@@ -40,7 +38,6 @@ export async function encode(
   quality: number,
   resize?: { width?: number; height?: number; fit?: 'cover' | 'contain' | 'fill' | 'inside' | 'outside' },
 ): Promise<Uint8Array> {
-  // Raw format doesn't need an encoder
   if (format === 'raw') {
     return rawEncoder.encode({ pixels, width, height, format, quality });
   }

@@ -68,6 +68,7 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "libheif-js": "^1.19.8"
+    "libheif-js": "^1.19.8",
+    "upng-js": "^2.1.0"
   }
 }
