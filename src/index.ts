@@ -1,5 +1,6 @@
 export { convert, convertAll, decode, inspect } from './convert.js';
 export { isHeic } from './decoder/format-detect.js';
+export { init } from './decoder/wasm-loader.js';
 export type {
   ConvertOptions,
   ConvertResult,

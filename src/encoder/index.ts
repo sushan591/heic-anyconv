@@ -2,6 +2,7 @@ import type { Encoder } from './encoder.types.js';
 import type { OutputFormat } from '../types.js';
 import { rawEncoder } from './raw-encoder.js';
 import { createSharpEncoder } from './sharp-encoder.js';
+import { createCanvasEncoder } from './canvas-encoder.js';
 import { UnsupportedFormatError } from '../errors.js';
 
 let resolvedEncoder: Encoder | null = null;
@@ -16,7 +17,13 @@ async function resolveEncoder(): Promise<Encoder> {
     return resolvedEncoder;
   }
 
-  // TODO: Add canvas encoder for browser (Phase 2)
+  // Try Canvas encoder (browser environments)
+  const canvas = createCanvasEncoder();
+  if (canvas) {
+    resolvedEncoder = canvas;
+    return resolvedEncoder;
+  }
+
   // TODO: Add WASM encoder fallback (Phase 4)
 
   throw new UnsupportedFormatError(

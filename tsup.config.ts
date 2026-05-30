@@ -22,4 +22,13 @@ export default defineConfig([
     external: ['sharp'],
     sourcemap: true,
   },
+  {
+    entry: { index: 'src/index.ts' },
+    format: ['esm'],
+    platform: 'browser',
+    target: 'es2020',
+    outDir: 'dist/browser',
+    sourcemap: true,
+    external: ['sharp'],
+  },
 ]);

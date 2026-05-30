@@ -1,4 +1,5 @@
 import { DecoderError } from '../errors.js';
+import { ensureInitialized } from './wasm-loader.js';
 
 export interface DecodedImage {
   width: number;
@@ -15,43 +16,11 @@ interface HeifImage {
   ): void;
 }
 
-interface HeifDecoder {
-  decode(data: Uint8Array | Buffer): HeifImage[];
-}
-
-interface LibHeif {
-  HeifDecoder: new () => HeifDecoder;
-}
-
-let libheifModule: LibHeif | null = null;
-
-async function getLibHeif(): Promise<LibHeif> {
-  if (libheifModule) return libheifModule;
-
-  try {
-    // Use the WASM variant for Node.js (better performance)
-    const mod: any = await import('libheif-js/wasm');
-    libheifModule = mod.default ?? mod;
-    return libheifModule!;
-  } catch {
-    try {
-      // Fallback to default (pure JS)
-      const mod: any = await import('libheif-js');
-      libheifModule = mod.default ?? mod;
-      return libheifModule!;
-    } catch (err) {
-      throw new DecoderError(
-        `Failed to load libheif: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-}
-
 export async function decodeHeif(
   input: Uint8Array,
   imageIndex?: number | 'all',
 ): Promise<DecodedImage[]> {
-  const libheif = await getLibHeif();
+  const libheif = await ensureInitialized();
   const decoder = new libheif.HeifDecoder();
 
   let images: HeifImage[];
@@ -67,7 +36,6 @@ export async function decodeHeif(
     throw new DecoderError('No images found in HEIC file');
   }
 
-  // Determine which images to decode
   let selectedImages: HeifImage[];
   if (imageIndex === 'all') {
     selectedImages = images;
@@ -109,7 +77,7 @@ export async function decodeHeif(
 }
 
 export async function getImageCount(input: Uint8Array): Promise<number> {
-  const libheif = await getLibHeif();
+  const libheif = await ensureInitialized();
   const decoder = new libheif.HeifDecoder();
 
   try {

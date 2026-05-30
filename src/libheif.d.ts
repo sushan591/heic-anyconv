@@ -24,3 +24,8 @@ declare module 'libheif-js/wasm' {
   import type libheif from 'libheif-js';
   export default libheif;
 }
+
+declare module 'libheif-js/wasm-bundle' {
+  import type libheif from 'libheif-js';
+  export default libheif;
+}
