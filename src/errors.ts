@@ -18,7 +18,7 @@ export class InvalidInputError extends HeicAnyconvError {
 export class UnsupportedFormatError extends HeicAnyconvError {
   constructor(format: string, encoder: string) {
     super(
-      `Format "${format}" is not supported by the ${encoder} encoder. Install Sharp for full format support in Node.js.`,
+      `Format "${format}" is not supported by the ${encoder} encoder.`,
       'UNSUPPORTED_FORMAT',
     );
     this.name = 'UnsupportedFormatError';

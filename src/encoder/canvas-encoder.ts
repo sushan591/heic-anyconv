@@ -1,5 +1,4 @@
-import type { Encoder, EncodeInput } from './encoder.types.js';
-import type { OutputFormat } from '../types.js';
+import type { OutputFormat, ResizeOptions } from '../types.js';
 import { UnsupportedFormatError } from '../errors.js';
 
 function getMimeForFormat(format: OutputFormat): string {
@@ -11,116 +10,105 @@ function getMimeForFormat(format: OutputFormat): string {
   }
 }
 
-async function encodeWithOffscreenCanvas(input: EncodeInput): Promise<Uint8Array> {
-  const mime = getMimeForFormat(input.format);
+export async function encodeWithCanvas(
+  pixels: Uint8ClampedArray,
+  srcWidth: number,
+  srcHeight: number,
+  format: OutputFormat,
+  quality: number,
+  resize?: ResizeOptions,
+): Promise<Uint8Array> {
+  const mime = getMimeForFormat(format);
   if (!mime) {
-    throw new UnsupportedFormatError(input.format, 'canvas');
+    throw new UnsupportedFormatError(format, 'canvas');
   }
 
-  let width = input.width;
-  let height = input.height;
+  let width = srcWidth;
+  let height = srcHeight;
 
-  // Handle resize
-  if (input.resize?.width || input.resize?.height) {
-    const targetW = input.resize.width;
-    const targetH = input.resize.height;
-    const aspect = input.width / input.height;
-
-    if (targetW && targetH) {
-      width = targetW;
-      height = targetH;
-    } else if (targetW) {
-      width = targetW;
-      height = Math.round(targetW / aspect);
-    } else if (targetH) {
-      height = targetH;
-      width = Math.round(targetH * aspect);
+  if (resize?.width || resize?.height) {
+    const aspect = srcWidth / srcHeight;
+    if (resize.width && resize.height) {
+      width = resize.width;
+      height = resize.height;
+    } else if (resize.width) {
+      width = resize.width;
+      height = Math.round(resize.width / aspect);
+    } else if (resize.height) {
+      height = resize.height;
+      width = Math.round(resize.height * aspect);
     }
   }
 
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('Failed to get 2d context from OffscreenCanvas');
+  const pixelData = new Uint8ClampedArray(pixels.buffer.slice(
+    pixels.byteOffset,
+    pixels.byteOffset + pixels.byteLength,
+  )) as Uint8ClampedArray<ArrayBuffer>;
+  const imageData = new ImageData(pixelData, srcWidth, srcHeight);
+
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return encodeOffscreen(imageData, srcWidth, srcHeight, width, height, mime, format, quality);
   }
 
-  // Create ImageData from source pixels at original size, then draw scaled
-  const pixelData = new Uint8ClampedArray(input.pixels.buffer.slice(
-    input.pixels.byteOffset,
-    input.pixels.byteOffset + input.pixels.byteLength,
-  )) as Uint8ClampedArray<ArrayBuffer>;
-  const imageData = new ImageData(pixelData, input.width, input.height);
+  if (typeof document !== 'undefined') {
+    return encodeDOM(imageData, srcWidth, srcHeight, width, height, mime, format, quality);
+  }
 
-  if (width !== input.width || height !== input.height) {
-    const tempCanvas = new OffscreenCanvas(input.width, input.height);
-    const tempCtx = tempCanvas.getContext('2d')!;
-    tempCtx.putImageData(imageData, 0, 0);
-    ctx.drawImage(tempCanvas, 0, 0, width, height);
+  throw new Error('No Canvas API available. This package requires a browser environment.');
+}
+
+async function encodeOffscreen(
+  imageData: ImageData,
+  srcWidth: number,
+  srcHeight: number,
+  width: number,
+  height: number,
+  mime: string,
+  format: OutputFormat,
+  quality: number,
+): Promise<Uint8Array> {
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d')!;
+
+  if (width !== srcWidth || height !== srcHeight) {
+    const tmp = new OffscreenCanvas(srcWidth, srcHeight);
+    tmp.getContext('2d')!.putImageData(imageData, 0, 0);
+    ctx.drawImage(tmp, 0, 0, width, height);
   } else {
     ctx.putImageData(imageData, 0, 0);
   }
 
   const blob = await canvas.convertToBlob({
     type: mime,
-    quality: input.format === 'png' ? undefined : input.quality,
+    quality: format === 'png' ? undefined : quality,
   });
-
-  const arrayBuffer = await blob.arrayBuffer();
-  return new Uint8Array(arrayBuffer);
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
-async function encodeWithHTMLCanvas(input: EncodeInput): Promise<Uint8Array> {
-  const mime = getMimeForFormat(input.format);
-  if (!mime) {
-    throw new UnsupportedFormatError(input.format, 'canvas');
-  }
-
-  let width = input.width;
-  let height = input.height;
-
-  if (input.resize?.width || input.resize?.height) {
-    const targetW = input.resize.width;
-    const targetH = input.resize.height;
-    const aspect = input.width / input.height;
-
-    if (targetW && targetH) {
-      width = targetW;
-      height = targetH;
-    } else if (targetW) {
-      width = targetW;
-      height = Math.round(targetW / aspect);
-    } else if (targetH) {
-      height = targetH;
-      width = Math.round(targetH * aspect);
-    }
-  }
-
+async function encodeDOM(
+  imageData: ImageData,
+  srcWidth: number,
+  srcHeight: number,
+  width: number,
+  height: number,
+  mime: string,
+  format: OutputFormat,
+  quality: number,
+): Promise<Uint8Array> {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('Failed to get 2d context from canvas');
-  }
+  const ctx = canvas.getContext('2d')!;
 
-  const pixelData = new Uint8ClampedArray(input.pixels.buffer.slice(
-    input.pixels.byteOffset,
-    input.pixels.byteOffset + input.pixels.byteLength,
-  )) as Uint8ClampedArray<ArrayBuffer>;
-  const imageData = new ImageData(pixelData, input.width, input.height);
-
-  if (width !== input.width || height !== input.height) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = input.width;
-    tempCanvas.height = input.height;
-    const tempCtx = tempCanvas.getContext('2d')!;
-    tempCtx.putImageData(imageData, 0, 0);
-    ctx.drawImage(tempCanvas, 0, 0, width, height);
+  if (width !== srcWidth || height !== srcHeight) {
+    const tmp = document.createElement('canvas');
+    tmp.width = srcWidth;
+    tmp.height = srcHeight;
+    tmp.getContext('2d')!.putImageData(imageData, 0, 0);
+    ctx.drawImage(tmp, 0, 0, width, height);
   } else {
     ctx.putImageData(imageData, 0, 0);
   }
-
-  const quality = input.format === 'png' ? undefined : input.quality;
 
   return new Promise<Uint8Array>((resolve, reject) => {
     canvas.toBlob(
@@ -135,44 +123,7 @@ async function encodeWithHTMLCanvas(input: EncodeInput): Promise<Uint8Array> {
         );
       },
       mime,
-      quality,
+      format === 'png' ? undefined : quality,
     );
   });
-}
-
-export function createCanvasEncoder(): Encoder | null {
-  const hasOffscreen = typeof OffscreenCanvas !== 'undefined';
-  const hasDOM = typeof document !== 'undefined' && typeof HTMLCanvasElement !== 'undefined';
-
-  if (!hasOffscreen && !hasDOM) {
-    return null;
-  }
-
-  const encodeFn = hasOffscreen ? encodeWithOffscreenCanvas : encodeWithHTMLCanvas;
-
-  // Detect supported formats
-  const supportedFormats: OutputFormat[] = ['png']; // PNG always works
-
-  // Check JPEG and WebP support via canvas
-  if (hasOffscreen || hasDOM) {
-    supportedFormats.push('jpeg');
-    // WebP is supported in all modern browsers
-    supportedFormats.push('webp');
-  }
-
-  return {
-    name: 'canvas',
-    supportedFormats,
-
-    supportsFormat(format: OutputFormat) {
-      return this.supportedFormats.includes(format);
-    },
-
-    async encode(input: EncodeInput): Promise<Uint8Array> {
-      if (!this.supportsFormat(input.format)) {
-        throw new UnsupportedFormatError(input.format, 'canvas');
-      }
-      return encodeFn(input);
-    },
-  };
 }

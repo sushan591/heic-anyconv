@@ -75,15 +75,3 @@ export async function decodeHeif(
 
   return results;
 }
-
-export async function getImageCount(input: Uint8Array): Promise<number> {
-  const libheif = await ensureInitialized();
-  const decoder = new libheif.HeifDecoder();
-
-  try {
-    const images = decoder.decode(input);
-    return images?.length ?? 0;
-  } catch {
-    return 0;
-  }
-}

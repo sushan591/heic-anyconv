@@ -1,6 +1,6 @@
-export type InputData = Uint8Array | ArrayBuffer | Buffer;
+export type InputData = Uint8Array | ArrayBuffer;
 
-export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'tiff' | 'raw';
+export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'raw';
 
 export interface ConvertOptions {
   /** The HEIC/HEIF file data */
@@ -9,13 +9,13 @@ export interface ConvertOptions {
   /** Desired output format. Default: 'jpeg' */
   format?: OutputFormat;
 
-  /** Output quality 0-1 for lossy formats (jpeg, webp, avif). Default: 0.92 */
+  /** Output quality 0-1 for lossy formats (jpeg, webp). Default: 0.92 */
   quality?: number;
 
   /** Resize options. If omitted, original dimensions are preserved. */
   resize?: ResizeOptions;
 
-  /** Whether to preserve EXIF/XMP metadata in output. Default: true */
+  /** Whether to extract EXIF/XMP metadata and include in result. Default: true */
   preserveMetadata?: boolean;
 
   /**
@@ -31,7 +31,6 @@ export interface ConvertOptions {
 export interface ResizeOptions {
   width?: number;
   height?: number;
-  fit?: 'cover' | 'contain' | 'fill' | 'inside' | 'outside';
 }
 
 export interface ConvertResult {
@@ -74,7 +73,6 @@ export interface RawPixelResult {
 export interface ImageMetadata {
   exif?: Record<string, unknown>;
   xmp?: string;
-  icc?: Uint8Array;
 }
 
 export interface ImageInfo {
@@ -95,7 +93,7 @@ export interface ImageInfo {
 }
 
 export interface InitOptions {
-  /** URL to the .wasm file (browser) or file path (Node.js) */
+  /** URL to the .wasm file (browser) */
   wasmPath?: string;
 
   /** A pre-compiled WebAssembly.Module (e.g. for Cloudflare Workers) */
