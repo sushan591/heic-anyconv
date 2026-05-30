@@ -9,7 +9,7 @@ import type {
 } from './types.js';
 import { toUint8Array } from './utils/buffer.js';
 import { isHeic, getMimeType } from './decoder/format-detect.js';
-import { decodeHeif } from './decoder/heif-decoder.js';
+import type { DecodedImage } from './decoder/heif-decoder.js';
 import { extractExifFromHeic, parseExif } from './metadata/exif-parser.js';
 import { injectExifIntoJpeg, injectExifIntoPng, injectExifIntoWebp } from './metadata/exif-injector.js';
 import { extractXmpFromHeic } from './metadata/xmp-parser.js';
@@ -23,6 +23,11 @@ export type EncodeFn = (
   quality: number,
   resize?: { width?: number; height?: number; fit?: 'cover' | 'contain' | 'fill' | 'inside' | 'outside' },
 ) => Promise<Uint8Array>;
+
+export type DecodeHeifFn = (
+  input: Uint8Array,
+  imageIndex?: number | 'all',
+) => Promise<DecodedImage[]>;
 
 function validateInput(data: InputData): Uint8Array {
   const bytes = toUint8Array(data);
@@ -85,7 +90,7 @@ function injectMetadata(outputData: Uint8Array, format: OutputFormat, rawExif: U
   }
 }
 
-export function createConvertFns(encode: EncodeFn) {
+export function createConvertFns(encode: EncodeFn, decodeHeif: DecodeHeifFn) {
   async function convert(options: ConvertOptions): Promise<ConvertResult> {
     const {
       format = 'jpeg',

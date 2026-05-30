@@ -1,6 +1,6 @@
 {
   "name": "heic-anyconv",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Universal HEIC/HEIF to any format converter. Supports JPEG, PNG, WebP, AVIF, TIFF. Works in Node.js and browsers.",
   "type": "module",
   "exports": {
