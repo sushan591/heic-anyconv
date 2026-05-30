@@ -225,8 +225,85 @@ export function parseExif(data: Uint8Array): ExifData | null {
 }
 
 /**
+ * Calculate the actual size of EXIF/TIFF data by walking IFD entries.
+ * Returns the byte offset (relative to tiffStart) just past the last
+ * referenced data, so we know where the EXIF payload truly ends.
+ */
+function calcTiffDataEnd(data: Uint8Array, tiffStart: number): number {
+  if (tiffStart + 8 > data.length) return 8;
+
+  const byteOrder = (data[tiffStart] << 8) | data[tiffStart + 1];
+  const le = byteOrder === TIFF_LE;
+
+  function u16(off: number): number {
+    const abs = tiffStart + off;
+    if (abs + 2 > data.length) return 0;
+    return le
+      ? data[abs] | (data[abs + 1] << 8)
+      : (data[abs] << 8) | data[abs + 1];
+  }
+
+  function u32(off: number): number {
+    const abs = tiffStart + off;
+    if (abs + 4 > data.length) return 0;
+    return le
+      ? data[abs] | (data[abs + 1] << 8) | (data[abs + 2] << 16) | ((data[abs + 3] << 24) >>> 0)
+      : ((data[abs] << 24) | (data[abs + 1] << 16) | (data[abs + 2] << 8) | data[abs + 3]) >>> 0;
+  }
+
+  const typeSizes: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 8: 2, 9: 4, 10: 8, 12: 8 };
+  let furthest = 8; // minimum: TIFF header
+
+  function walkIfd(ifdOffset: number, depth: number): void {
+    if (depth > 4 || ifdOffset + 2 > data.length - tiffStart) return;
+    const count = u16(ifdOffset);
+    const ifdEnd = ifdOffset + 2 + count * 12 + 4; // +4 for next-IFD pointer
+    if (ifdEnd > furthest) furthest = ifdEnd;
+
+    for (let i = 0; i < count; i++) {
+      const entryOff = ifdOffset + 2 + i * 12;
+      if (tiffStart + entryOff + 12 > data.length) break;
+
+      const tag = u16(entryOff);
+      const type = u16(entryOff + 2);
+      const cnt = u32(entryOff + 4);
+      const sz = (typeSizes[type] || 1) * cnt;
+
+      if (sz > 4) {
+        const valOff = u32(entryOff + 8);
+        const valEnd = valOff + sz;
+        if (valEnd > furthest) furthest = valEnd;
+      }
+
+      // Follow sub-IFD pointers (ExifIFD, GPSIFD)
+      if (tag === 0x8769 || tag === 0x8825) {
+        const subOff = u32(entryOff + 8);
+        walkIfd(subOff, depth + 1);
+      }
+    }
+
+    // Follow next-IFD pointer
+    const nextIfdOff = u32(ifdOffset + 2 + count * 12);
+    if (nextIfdOff > 0) {
+      walkIfd(nextIfdOff, depth + 1);
+    }
+  }
+
+  const magic = u16(2);
+  if (magic !== 42) return 8;
+
+  const firstIfd = u32(4);
+  if (firstIfd > 0) {
+    walkIfd(firstIfd, 0);
+  }
+
+  return furthest;
+}
+
+/**
  * Extract raw EXIF bytes from a HEIC file's ISOBMFF container.
- * Searches for the Exif item in the meta box.
+ * Searches for the Exif item in the meta box, then determines
+ * the actual EXIF data extent by walking the TIFF IFD structure.
  */
 export function extractExifFromHeic(data: Uint8Array): Uint8Array | null {
   // Search for "Exif" marker in the data
@@ -239,11 +316,17 @@ export function extractExifFromHeic(data: Uint8Array): Uint8Array | null {
       data[i + 4] === 0x00 &&
       data[i + 5] === 0x00
     ) {
-      // Found Exif header, try to determine the extent
-      // Look backwards for a potential offset/size indicator
-      // For now, extract a reasonable chunk (up to 64KB or end of file)
-      const maxLen = Math.min(65536, data.length - i);
-      return data.slice(i, i + maxLen);
+      // "Exif\0\0" header is 6 bytes, TIFF data starts at i+6
+      const tiffStart = i + 6;
+      if (tiffStart + 8 > data.length) return null;
+
+      // Walk TIFF IFDs to find actual data extent
+      const tiffLen = calcTiffDataEnd(data, tiffStart);
+      const totalLen = 6 + tiffLen; // "Exif\0\0" + TIFF data
+
+      // Clamp to APP1 max (65533 = 0xFFFF - 2 for length field)
+      const safeLen = Math.min(totalLen, 65533, data.length - i);
+      return data.slice(i, i + safeLen);
     }
   }
 

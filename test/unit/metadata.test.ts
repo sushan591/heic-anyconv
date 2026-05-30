@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseExif } from '../../src/metadata/exif-parser.js';
+import { parseExif, extractExifFromHeic } from '../../src/metadata/exif-parser.js';
 import { injectExifIntoJpeg, injectExifIntoPng, injectExifIntoWebp } from '../../src/metadata/exif-injector.js';
 
 describe('EXIF parser', () => {
@@ -39,6 +39,58 @@ describe('EXIF parser', () => {
   });
 });
 
+describe('extractExifFromHeic', () => {
+  it('extracts EXIF with correct size based on TIFF IFD structure', () => {
+    // Build a fake HEIC-like buffer with an Exif block embedded
+    // Exif\0\0 + TIFF header (II, 42, IFD at offset 8) + IFD with 0 entries + next-IFD=0
+    const tiffData = new Uint8Array([
+      0x49, 0x49, // II (little-endian)
+      0x2A, 0x00, // Magic 42
+      0x08, 0x00, 0x00, 0x00, // IFD offset = 8
+      0x00, 0x00, // 0 entries
+      0x00, 0x00, 0x00, 0x00, // next IFD = 0
+    ]);
+
+    // Prefix: some padding + Exif\0\0 + tiff + trailing garbage
+    const prefix = new Uint8Array(100);
+    const exifHeader = new Uint8Array([0x45, 0x78, 0x69, 0x66, 0x00, 0x00]);
+    const garbage = new Uint8Array(500).fill(0xAB);
+
+    const full = new Uint8Array(prefix.length + exifHeader.length + tiffData.length + garbage.length);
+    full.set(prefix, 0);
+    full.set(exifHeader, prefix.length);
+    full.set(tiffData, prefix.length + exifHeader.length);
+    full.set(garbage, prefix.length + exifHeader.length + tiffData.length);
+
+    const result = extractExifFromHeic(full);
+    expect(result).not.toBeNull();
+    // Should NOT include the trailing garbage
+    // Expected: 6 (Exif\0\0) + TIFF IFD extent (12 bytes: header 8 + IFD 2 entries-count + 4 next-ptr = ~14)
+    expect(result!.length).toBeLessThan(exifHeader.length + tiffData.length + garbage.length);
+    expect(result!.length).toBeLessThanOrEqual(6 + tiffData.length);
+  });
+
+  it('returns result within APP1 size limit', () => {
+    // Create a buffer with Exif header followed by a large amount of data
+    // that could be mistaken for EXIF if we blindly grab 64KB
+    const exifHeader = new Uint8Array([0x45, 0x78, 0x69, 0x66, 0x00, 0x00]);
+    const tiffHeader = new Uint8Array([
+      0x49, 0x49, 0x2A, 0x00,
+      0x08, 0x00, 0x00, 0x00,
+      0x00, 0x00, // 0 entries
+      0x00, 0x00, 0x00, 0x00,
+    ]);
+    const full = new Uint8Array(100000);
+    full.set(exifHeader, 0);
+    full.set(tiffHeader, exifHeader.length);
+
+    const result = extractExifFromHeic(full);
+    expect(result).not.toBeNull();
+    // Must fit in JPEG APP1 segment (max payload 65533)
+    expect(result!.length).toBeLessThanOrEqual(65533);
+  });
+});
+
 describe('EXIF injector - JPEG', () => {
   it('injects EXIF into valid JPEG', () => {
     const jpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0xFF, 0xD9]);
@@ -60,6 +112,14 @@ describe('EXIF injector - JPEG', () => {
     const notJpeg = new Uint8Array([0x89, 0x50, 0x4E, 0x47]);
     const exif = new Uint8Array([0x45, 0x78]);
     expect(injectExifIntoJpeg(notJpeg, exif)).toBe(notJpeg);
+  });
+
+  it('skips injection if EXIF data exceeds APP1 max size', () => {
+    const jpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x02, 0xFF, 0xD9]);
+    const oversizedExif = new Uint8Array(65534); // exceeds 65533 limit
+    const result = injectExifIntoJpeg(jpeg, oversizedExif);
+    // Should return original JPEG unchanged
+    expect(result).toBe(jpeg);
   });
 });
 

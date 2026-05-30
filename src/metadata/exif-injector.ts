@@ -13,6 +13,12 @@ export function injectExifIntoJpeg(jpeg: Uint8Array, exifData: Uint8Array): Uint
     return jpeg;
   }
 
+  // APP1 length field is 2 bytes, max value 0xFFFF.
+  // It includes the 2 length bytes themselves, so max payload is 65533.
+  if (exifData.length > 65533) {
+    return jpeg; // EXIF too large for APP1, skip injection rather than corrupt
+  }
+
   // Build APP1 segment: FF E1 [length:2] [exif data]
   const segmentLength = exifData.length + 2; // +2 for the length field itself
   const app1 = new Uint8Array(4 + exifData.length);
