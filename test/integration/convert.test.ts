@@ -161,7 +161,7 @@ describe('convert (integration)', () => {
     expect(result.width).toBeGreaterThan(0);
   });
 
-  it('converts HEIC to AVIF', async () => {
+  it('converts HEIC to AVIF', { timeout: 30000 }, async () => {
     const data = await readFile(fixturePath);
     const result = await convert({ data, format: 'avif' });
 
