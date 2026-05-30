@@ -10,11 +10,7 @@ Convert iPhone photos (HEIC) to JPEG, PNG, WebP, AVIF, TIFF, or raw pixel data. 
 npm install heic-anyconv
 ```
 
-For best output quality and full format support, also install Sharp (optional):
-
-```bash
-npm install sharp
-```
+All dependencies (including Sharp for high-quality encoding) are included automatically.
 
 ## Quick Start
 
@@ -138,24 +134,14 @@ await init({ wasmModule: compiledModule });
 
 ## Output Formats
 
-| Format | Sharp required | Browser support | Notes |
-|--------|---------------|-----------------|-------|
-| JPEG   | Recommended   | Via Canvas      | Best compatibility |
-| PNG    | No*           | Via Canvas      | Lossless, larger files |
-| WebP   | Recommended   | Via Canvas      | Good compression |
-| AVIF   | Yes           | No              | Best compression |
-| TIFF   | Yes           | No              | Professional workflows |
-| raw    | No            | Yes             | RGBA pixel data |
-
-\* PNG works without Sharp via the built-in fallback encoder (upng-js).
-
-## Encoder Priority
-
-The package automatically selects the best available encoder:
-
-1. **Sharp** (Node.js) - All formats, best quality. Install with `npm install sharp`.
-2. **Canvas** (Browser) - JPEG, PNG, WebP via OffscreenCanvas/HTMLCanvas.
-3. **Fallback** - PNG only via upng-js. Works everywhere.
+| Format | Node.js | Browser | Notes |
+|--------|---------|---------|-------|
+| JPEG   | Sharp   | Canvas  | Best compatibility |
+| PNG    | Sharp   | Canvas  | Lossless, larger files |
+| WebP   | Sharp   | Canvas  | Good compression |
+| AVIF   | Sharp   | -       | Best compression |
+| TIFF   | Sharp   | -       | Professional workflows |
+| raw    | Built-in| Built-in| RGBA pixel data |
 
 ## Supported Input Formats
 
