@@ -1,4 +1,4 @@
-import { encode } from './encoder/index.js';
+import { encode } from './encoder/index.browser.js';
 import { createConvertFns } from './convert.core.js';
 
 const { convert, convertAll, decode, inspect } = createConvertFns(encode);
