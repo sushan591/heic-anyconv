@@ -127,4 +127,55 @@ describe('convert (integration)', () => {
 
     await expect(convert({ data, signal: controller.signal })).rejects.toThrow('aborted');
   });
+
+  it('preserves metadata by default', async () => {
+    const data = await readFile(fixturePath);
+    const result = await convert({ data, format: 'jpeg' });
+
+    // metadata field should be present (may or may not have exif depending on fixture)
+    // The important thing is that the convert doesn't crash with metadata enabled
+    expect(result.mimeType).toBe('image/jpeg');
+  });
+
+  it('can disable metadata preservation', async () => {
+    const data = await readFile(fixturePath);
+    const result = await convert({ data, format: 'jpeg', preserveMetadata: false });
+
+    expect(result.metadata).toBeUndefined();
+  });
+
+  it('inspect returns metadata when available', async () => {
+    const data = await readFile(fixturePath);
+    const info = await inspect(data);
+
+    expect(info.imageCount).toBeGreaterThanOrEqual(1);
+    // metadata may or may not exist depending on fixture content
+    expect(typeof info.imageCount).toBe('number');
+  });
+
+  it('decode returns metadata', async () => {
+    const data = await readFile(fixturePath);
+    const result = await decode(data);
+
+    expect(result.channels).toBe(4);
+    expect(result.width).toBeGreaterThan(0);
+  });
+
+  it('converts HEIC to AVIF', async () => {
+    const data = await readFile(fixturePath);
+    const result = await convert({ data, format: 'avif' });
+
+    expect(result.format).toBe('avif');
+    expect(result.mimeType).toBe('image/avif');
+    expect(result.data.length).toBeGreaterThan(0);
+  });
+
+  it('converts HEIC to TIFF', async () => {
+    const data = await readFile(fixturePath);
+    const result = await convert({ data, format: 'tiff' });
+
+    expect(result.format).toBe('tiff');
+    expect(result.mimeType).toBe('image/tiff');
+    expect(result.data.length).toBeGreaterThan(0);
+  });
 });

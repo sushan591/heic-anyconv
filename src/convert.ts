@@ -3,6 +3,7 @@ import type {
   ConvertResult,
   RawPixelResult,
   ImageInfo,
+  ImageMetadata,
   InputData,
   OutputFormat,
 } from './types.js';
@@ -10,6 +11,9 @@ import { toUint8Array } from './utils/buffer.js';
 import { isHeic, getMimeType } from './decoder/format-detect.js';
 import { decodeHeif, getImageCount } from './decoder/heif-decoder.js';
 import { encode } from './encoder/index.js';
+import { extractExifFromHeic, parseExif } from './metadata/exif-parser.js';
+import { injectExifIntoJpeg, injectExifIntoPng, injectExifIntoWebp } from './metadata/exif-injector.js';
+import { extractXmpFromHeic } from './metadata/xmp-parser.js';
 import { InvalidInputError, AbortError } from './errors.js';
 
 function validateInput(data: InputData): Uint8Array {
@@ -34,11 +38,52 @@ function checkAbort(signal?: AbortSignal): void {
   }
 }
 
+function extractMetadata(bytes: Uint8Array): { rawExif: Uint8Array | null; metadata: ImageMetadata | undefined } {
+  const rawExif = extractExifFromHeic(bytes);
+  const xmp = extractXmpFromHeic(bytes);
+
+  if (!rawExif && !xmp) {
+    return { rawExif: null, metadata: undefined };
+  }
+
+  const metadata: ImageMetadata = {};
+
+  if (rawExif) {
+    const parsed = parseExif(rawExif);
+    if (parsed) {
+      metadata.exif = parsed;
+    }
+  }
+
+  if (xmp) {
+    metadata.xmp = xmp;
+  }
+
+  return { rawExif, metadata };
+}
+
+function injectMetadata(outputData: Uint8Array, format: OutputFormat, rawExif: Uint8Array | null): Uint8Array {
+  if (!rawExif) return outputData;
+
+  switch (format) {
+    case 'jpeg':
+      return injectExifIntoJpeg(outputData, rawExif);
+    case 'png':
+      return injectExifIntoPng(outputData, rawExif);
+    case 'webp':
+      return injectExifIntoWebp(outputData, rawExif);
+    default:
+      // AVIF, TIFF, raw — skip injection for now
+      return outputData;
+  }
+}
+
 export async function convert(options: ConvertOptions): Promise<ConvertResult> {
   const {
     format = 'jpeg',
     quality = 0.92,
     resize,
+    preserveMetadata = true,
     imageIndex = 0,
     signal,
   } = options;
@@ -47,13 +92,21 @@ export async function convert(options: ConvertOptions): Promise<ConvertResult> {
 
   const bytes = validateInput(options.data);
 
-  // If requesting all images, delegate to convertAll internally
   if (imageIndex === 'all') {
     const results = await convertAll({ ...options, format, quality });
     return results[0];
   }
 
   checkAbort(signal);
+
+  // Extract metadata before decoding pixels
+  let rawExif: Uint8Array | null = null;
+  let metadata: ImageMetadata | undefined;
+  if (preserveMetadata) {
+    const meta = extractMetadata(bytes);
+    rawExif = meta.rawExif;
+    metadata = meta.metadata;
+  }
 
   // Decode
   const decoded = await decodeHeif(bytes, imageIndex);
@@ -62,7 +115,7 @@ export async function convert(options: ConvertOptions): Promise<ConvertResult> {
   checkAbort(signal);
 
   // Encode
-  const outputData = await encode(
+  let outputData = await encode(
     image.data,
     image.width,
     image.height,
@@ -71,12 +124,18 @@ export async function convert(options: ConvertOptions): Promise<ConvertResult> {
     resize,
   );
 
+  // Inject metadata into output
+  if (preserveMetadata && format !== 'raw') {
+    outputData = injectMetadata(outputData, format, rawExif);
+  }
+
   return {
     data: outputData,
     format,
     width: image.width,
     height: image.height,
     mimeType: getMimeType(format),
+    metadata,
   };
 }
 
@@ -87,12 +146,23 @@ export async function convertAll(
     format = 'jpeg',
     quality = 0.92,
     resize,
+    preserveMetadata = true,
     signal,
   } = options;
 
   checkAbort(signal);
 
   const bytes = validateInput(options.data);
+
+  // Extract metadata once for all images
+  let rawExif: Uint8Array | null = null;
+  let metadata: ImageMetadata | undefined;
+  if (preserveMetadata) {
+    const meta = extractMetadata(bytes);
+    rawExif = meta.rawExif;
+    metadata = meta.metadata;
+  }
+
   const decoded = await decodeHeif(bytes, 'all');
 
   const results: ConvertResult[] = [];
@@ -100,7 +170,7 @@ export async function convertAll(
   for (const image of decoded) {
     checkAbort(signal);
 
-    const outputData = await encode(
+    let outputData = await encode(
       image.data,
       image.width,
       image.height,
@@ -109,12 +179,17 @@ export async function convertAll(
       resize,
     );
 
+    if (preserveMetadata && format !== 'raw') {
+      outputData = injectMetadata(outputData, format, rawExif);
+    }
+
     results.push({
       data: outputData,
       format,
       width: image.width,
       height: image.height,
       mimeType: getMimeType(format),
+      metadata,
     });
   }
 
@@ -132,11 +207,15 @@ export async function decode(
   const decoded = await decodeHeif(bytes, options?.imageIndex ?? 0);
   const image = decoded[0];
 
+  // Extract metadata for raw decode too
+  const { metadata } = extractMetadata(bytes);
+
   return {
     data: image.data,
     width: image.width,
     height: image.height,
     channels: 4,
+    metadata,
   };
 }
 
@@ -144,8 +223,10 @@ export async function inspect(data: InputData): Promise<ImageInfo> {
   const bytes = validateInput(data);
 
   // Decode all images to get their dimensions
-  // TODO: In a future version, parse ISOBMFF boxes directly to avoid full decode
   const decoded = await decodeHeif(bytes, 'all');
+
+  // Extract metadata without full pixel decode
+  const { metadata } = extractMetadata(bytes);
 
   return {
     imageCount: decoded.length,
@@ -156,5 +237,6 @@ export async function inspect(data: InputData): Promise<ImageInfo> {
       isThumb: false,
     })),
     isSequence: decoded.length > 1,
+    metadata,
   };
 }
