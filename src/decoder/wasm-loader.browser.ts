@@ -27,20 +27,14 @@ export async function ensureInitialized(): Promise<LibHeifModule> {
 
 async function loadModule(): Promise<void> {
   try {
-    // Browser: use wasm-bundle (WASM binary inlined in JS, no fs needed)
+    // Browser-only: use wasm-bundle (WASM binary inlined in JS, no fs/node deps)
     const mod: any = await import('libheif-js/wasm-bundle');
     libheifModule = mod.default ?? mod;
-  } catch {
-    try {
-      // Fallback: pure JS variant
-      const mod: any = await import('libheif-js');
-      libheifModule = mod.default ?? mod;
-    } catch (err) {
-      throw new WasmLoadError(
-        `Failed to load HEIF decoder: ${err instanceof Error ? err.message : String(err)}. ` +
-        'Ensure libheif-js is installed.',
-      );
-    }
+  } catch (err) {
+    throw new WasmLoadError(
+      `Failed to load HEIF decoder: ${err instanceof Error ? err.message : String(err)}. ` +
+      'Ensure libheif-js is installed.',
+    );
   }
 }
 
